@@ -1,0 +1,257 @@
+﻿@page "/exerciseFirst"
+@inject HttpClient Http
+@inject ILoadDataService dataService
+@inject IDisplayDataService displayService
+@inject IFileDataService fileDataService
+@inject INormalizeService normalizationService
+@inject IKnnService knnService
+<h1>Normalizacja danych</h1>
+<br />
+<div class="container">
+    <EditForm Model="@UserChoice" OnValidSubmit="@HandleUserDatasetChoice">
+        <div class="row">
+            <div class="col-5">
+                <InputSelect @bind-Value="UserChoice">
+                    <option value="">Puste</option>
+                    <option value="australian.dat">Australian</option>
+                    <option value="crx.data">Credit Approval</option>
+                    <option value="wdbc.data">Breast Cancer Wisconsin</option>
+                </InputSelect>
+                <button type="submit" class="btn btn-link">Wczytaj dane</button>
+            </div>
+        </div>
+    </EditForm>
+    @if (dataset.Any())
+    {
+        <EditForm Model="DecisionId" OnValidSubmit="@HandleDecisionIdChoice">
+            <div class="container">
+                <div class="row">
+                    <div class="col-6">
+                        Pierwsze 3 przykładowe dane<br />
+                        @rawData
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-3">
+                        <div class="form-group">
+                            <label for="maxRange">Podaj id decyzji (1 - @maxNumberOfColumns)</label>
+                            <InputNumber class="form-control" @bind-Value="DecisionId" />
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-2">
+                        <button type="submit" class="btn btn-primary">Wyswietl dane</button>
+                    </div>
+                </div>
+            </div>
+        </EditForm>
+    }
+    @if (fileDatasWithDecision.Any())
+    {
+        <table class="table table-hover my-custom-scrollbar table-wrapper-scroll-y">
+            <thead>
+                <tr>
+                    <th>Decyzja</th>
+                    @for (int i = 0; i < numberOfColumns; i++)
+                    {
+                        <th>Kolumna @(i+1)</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var x in fileDatasWithDecision)
+                {
+                    <tr>
+                        <td>
+                            @x.Decision
+                        </td>
+                        @foreach (var data in x.Attributes)
+                        {
+                            <td>@data</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+        <br />
+        <EditForm Model="@Parameters" @onclick="HandleNormalization">
+            <div class="container">
+                <div class="row">
+                    <div class="col-4">
+                        <div class="form-group">
+                            <label for="minRange">Minimalny przedział</label>
+                            <InputNumber class="form-control" @bind-Value="Parameters.MinRange" />
+                        </div>
+                        <div class="form-group">
+                            <label for="maxRange">Maksymalny przedział</label>
+                            <InputNumber class="form-control" @bind-Value="Parameters.MaxRange" />
+                        </div>
+                    </div>
+                </div>
+                <div class="row">
+                    <div class="col-2">
+                        <button class="btn btn-info">Normalizuj dane</button>
+                    </div>
+                </div>
+            </div>
+        </EditForm>
+    }
+    <br />
+    <br />
+    @if (normalizedFileDatas.Any())
+    {
+        <h1>Dane znormalizowane</h1>
+
+        <table class="table table-hover my-custom-scrollbar table-wrapper-scroll-y">
+            <thead>
+                <tr>
+                    <th>Decyzja</th>
+                    @for (int i = 0; i < numberOfColumns; i++)
+                    {
+                        <th>Kolumna @(i+1)</th>
+                    }
+                </tr>
+            </thead>
+            <tbody>
+                @foreach (var x in normalizedFileDatas)
+                {
+                    <tr>
+                        <td>
+                            @x.Decision
+                        </td>
+                        @foreach (var data in x.NumericalValues)
+                        {
+                            <td>@data.Value</td>
+                        }
+                    </tr>
+                }
+            </tbody>
+        </table>
+    }
+</div>
+
+@if (normalizedFileDatas.Any())
+{
+    <div class="container">
+        <div class="row">
+            <div class="col-5">
+                <EditForm Model="@ClassificationChoice" OnValidSubmit="@HandleUserClassificationChoice">
+                    <div class="row">
+                        <div class="col-5">
+                            <InputSelect @bind-Value="ClassificationChoice">
+                                <option value="">Puste</option>
+                                <option value="firstChoice">Pierwszy sposób klasyfikacji</option>
+                                <option value="secondChoice">Drugi sposób klasyfikacji</option>
+                            </InputSelect>
+                            <button type="submit" class="btn btn-link">Wybierz</button>
+                        </div>
+                    </div>
+                </EditForm>
+            </div>
+        </div>
+        <div class="row">
+            @if (maxK != "")
+            {
+                <h2>@maxK</h2>
+            }
+        </div>
+    </div>
+}
+
+
+@code {
+    public string UserChoice { get; set; } = "";
+    public string ClassificationChoice { get; set; } = "";
+    public int DecisionId { get; set; } = 1;
+    public NormalizationParameters Parameters { get; set; }
+
+    int numberOfColumns = 0;
+    int maxNumberOfColumns = 0;
+    string maxK = "";
+    string rawData = "";
+
+    List<string> dataset = new List<string>();
+    List<FileData> fileDatasWithDecision = new List<FileData>();
+    List<NumericalFileData> normalizedFileDatas = new List<NumericalFileData>();
+
+    protected override void OnInitialized()
+    {
+        Parameters = new NormalizationParameters(0, 1);
+    }
+
+    private async Task HandleUserDatasetChoice()
+    {
+        if (UserChoice == "")
+        {
+            dataset = null;
+        }
+        else
+        {
+            dataset = await dataService.FetchData(UserChoice);
+
+            if (dataset != null)
+            {
+                var firstLine = dataset[0];
+                maxNumberOfColumns = dataset[0].Replace(',', ' ').Split(' ').Length;
+
+                for (int i = 0; i < 3; i++)
+                {
+                    rawData += $"{dataset[i]} \n";
+                }
+            }
+            else
+            {
+                dataset = null;
+                rawData = "";
+                fileDatasWithDecision = null;
+                normalizedFileDatas = null;
+
+            }
+        }
+    }
+
+    private void HandleDecisionIdChoice()
+    {
+        foreach (var x in dataset)
+        {
+            var output = x.Replace(',', ' ');
+            var fileData = new FileData(output, DecisionId - 1);
+            fileDatasWithDecision.Add(fileData);
+
+        }
+        numberOfColumns = fileDatasWithDecision.ElementAt(0).Attributes.Count;
+    }
+
+    private void HandleNormalization()
+    {
+        var numericalFileDatas = fileDataService.CreateListOfNumericalFileDatas(fileDatasWithDecision.Take(100).ToList());
+        normalizedFileDatas = normalizationService.NormalizeData(numericalFileDatas, Parameters.MaxRange, Parameters.MinRange);
+    }
+
+    private void HandleUserClassificationChoice()
+    {
+        if (ClassificationChoice == "firstChoice")
+        {
+            maxK = knnService.FindSmallestKForFirstWay(normalizedFileDatas).ToString();
+        }
+        else if (ClassificationChoice == "secondChoice")
+        {
+            maxK = knnService.FindSmallestKForSecondWay(normalizedFileDatas).ToString();
+        }
+    }
+
+    public class NormalizationParameters
+    {
+        [Required]
+        public double MinRange { get; set; }
+        [Required]
+        public double MaxRange { get; set; }
+
+        public NormalizationParameters(double minRange, double maxRange)
+        {
+            MinRange = minRange;
+            MaxRange = maxRange;
+        }
+    }
+}
